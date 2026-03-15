@@ -103,4 +103,6 @@ gfx.webrender.precise-radial-gradients-swgl = false
 ---
 
 # Beyond barebone optimizations : why web browsers are mainly single-threaded
-curious to know more about software renderers still beat gpu acceleration ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/DOM-SINGLE-THREADED.md)**
+Curious to know more about software renderers still beat gpu acceleration ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/DOM-SINGLE-THREADED.md)**
+Curious to know more about browsers rendering pipelines ? have a look **[here]()**
+
