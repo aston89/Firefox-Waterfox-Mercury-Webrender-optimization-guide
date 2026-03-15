@@ -99,3 +99,8 @@ gfx.webrender.precise-linear-gradients-swgl = false
 gfx.webrender.precise-radial-gradients = false		
 gfx.webrender.precise-radial-gradients-swgl = false
 ```
+
+---
+
+# Beyond barebone optimizations : why web browsers are mainly single-threaded
+curious to understand why a software renderer still beat gpu acceleration ? have a look **here**
