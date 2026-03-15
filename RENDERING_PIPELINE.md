@@ -1,4 +1,4 @@
-# Browser Rendering Pipeline (Simplified)
+## Browser Rendering Pipeline (Simplified)
 
 Understanding how a browser renders a page is essential to understanding where performance bottlenecks actually occur.
 
@@ -8,7 +8,7 @@ This document describes the high-level pipeline used by modern browsers, with pa
 
 ---
 
-# High-Level Rendering Pipeline
+## High-Level Rendering Pipeline
 
 A typical rendering cycle looks like this:
 
@@ -32,7 +32,7 @@ Each stage transforms the page state into a progressively more concrete represen
 
 ---
 
-# 1. JavaScript Execution
+## 1. JavaScript Execution
 
 JavaScript runs on the **main thread**.
 
@@ -49,7 +49,7 @@ Any of these actions may invalidate parts of the page.
 
 ---
 
-# 2. DOM Mutation
+## 2. DOM Mutation
 
 The DOM is the **structural representation of the page**.
 
@@ -64,7 +64,7 @@ These mutations mark parts of the page as **dirty**, meaning they must be recomp
 
 ---
 
-# 3. Style Recalculation
+## 3. Style Recalculation
 
 Once the DOM changes, the browser must determine which CSS rules apply to each element.
 
@@ -80,7 +80,7 @@ Only elements affected by the DOM mutation need to have their styles recalculate
 
 ---
 
-# 4. Layout (Reflow)
+## 4. Layout (Reflow)
 
 Layout determines the **geometry of the page**.
 
@@ -103,7 +103,7 @@ For example:
 
 ---
 
-# 5. Display List Generation
+## 5. Display List Generation
 
 After layout, the browser converts the page into a **display list**.
 
@@ -122,7 +122,7 @@ This list describes *what needs to be drawn*, but not yet *how it will be raster
 
 ---
 
-# 6. Rasterization
+## 6. Rasterization
 
 Rasterization converts display list commands into **actual pixels**.
 
@@ -138,7 +138,7 @@ Only the parts of the frame that changed need to be rasterized again.
 
 ---
 
-# 7. Compositing and Presentation
+## 7. Compositing and Presentation
 
 The final step is presenting the frame to the display.
 
@@ -153,7 +153,7 @@ Even when rendering is done in software, the final frame is usually presented th
 
 ---
 
-# Incremental Rendering
+## Incremental Rendering
 
 Modern browsers avoid redrawing the entire page whenever possible.
 
@@ -169,7 +169,7 @@ Efficient partial updates are critical for good performance, especially on pages
 
 ---
 
-# Where Performance Problems Usually Occur
+## Where Performance Problems Usually Occur
 
 Most real-world performance issues occur in one of these areas:
 
@@ -195,7 +195,7 @@ Understanding the rendering pipeline helps identify which subsystem is actually 
 
 ---
 
-# Key Takeaway
+## Key Takeaway
 
 While browsers contain many complex subsystems, the rendering process still follows a clear sequence:
 
