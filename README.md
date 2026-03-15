@@ -85,20 +85,26 @@ Example:
 WebRender divides the page into tiles and updates rects to efficiently rasterize only the changed parts of a page. This helps reduce CPU and RAM usage while keeping pages responsive and by default is set to portions of 512x512 tiles.
 
 **Too granular vs too large:**
-Too small tiles / too many rects: precise updates but more scheduling and CPU overhead.
-Too large tiles / too few rects: inefficient, large areas rasterized unnecessarily, more RAM usage.
-
-**Default values :**
+* Too small tiles / too many rects: precise updates but more scheduling and CPU overhead.
+* Too large tiles / too few rects: inefficient, large areas rasterized unnecessarily, more RAM usage.
 ```
-gfx.webrender.blob-tile-size	= 256		
 gfx.webrender.picture-tile-height	= 512		
 gfx.webrender.picture-tile-width	= 512
 ```
 * Tile size tuning depends on screen resolution, page complexity, and workload.
-* A tile size of 512x512 is often a good balance for picture tiles.
+* A tile size of 512x512 is often a **good balance** for picture tiles.
 * Blob tiles around 256px are efficient for most text-heavy pages.
 * Increasing max_update_rects allows multiple small updates to happen in a frame without collapsing into large redraws.
-* Together, these parameters drastically reduce CPU and RAM usage while keeping pages responsive.
+
+### 3c. "Blob Tiles":
+The tile size for rasterizing complex text and vector shapes are often called "blobs".
+Blobs are cached separately from picture tiles to avoid re-rasterizing vector graphics repeatedly.
+Smaller blob tiles increase cache hits for small vector updates but consume more bookkeeping resources.
+```
+gfx.webrender.blob-tile-size = 256
+```
+* Each blob tile is 256x256 pixels.
+* Default value is often ok-ish.
 
 ---
 
