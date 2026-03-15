@@ -3,7 +3,7 @@ This guide explains a highly efficient configuration for WebRender in software m
 
 ---
 
-# 1. The Problem with GPU acceleration and layer compositing
+## 1. The Problem with GPU acceleration and layer compositing
 Webrender based browsers attempt to accelerate rendering using GPU and in theory this should improve performance but it often causes:
 * Massive **texture allocation**
 * Constant **CPU ↔ GPU synchronization**.
@@ -28,7 +28,7 @@ Those mentioned above often perform **better without GPU layering**.
 
 ---
 
-# 2. The Alternative: Software WebRender
+## 2. The Alternative: Software WebRender
 
 WebRender can operate in **pure software raster mode**, while still using **D3D11 only as the presenter**.
 
@@ -44,7 +44,7 @@ Enabling software WebRender:
 
 ---
 
-# 3. The Critical Optimization: "Update Rectangles" and "surface pool size"
+## 3. The Critical Optimization: "Update Rectangles" and "surface pool size"
 
 By default WebRender is configured to generate and push, into the vram, an entire new frame everytime something change inside the page. 
 In order to optimize this behaviour, we need to dig into about:config and look for two strings to modify : 
@@ -86,7 +86,7 @@ Beyond a certain point, increasing both **rects** and the **pool size** only was
 
 ---
 
-# 5. Optional Fine Tuning
+## 4. Optional Fine Tuning
 
 Some websites make heavy use of gradient calculations.
 These operations can be expensive in software rendering.
