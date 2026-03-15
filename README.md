@@ -11,14 +11,12 @@ Webrender based browsers attempt to accelerate rendering using GPU and in theory
 * Significant **bookkeeping overhead**
 
 Each page layer becomes a separate GPU texture. The browser must constantly:
-
 * Upload textures
 * Synchronize layers
 * Track updates
 * Composite the final frame
 
 For the vast majority of real-world websites this introduces **more overhead than benefits** even for complex pages such as:
-
 * YouTube
 * Google Maps
 * Large ChatGPT conversations
@@ -28,10 +26,8 @@ Those mentioned above often perform **better without GPU layering**.
 
 ---
 
-## 2. The Alternative: Software WebRender
-
+## 2. Software WebRender
 WebRender can operate in **pure software raster mode**, while still using **D3D11 only as the presenter**.
-
 In this configuration:
 * The **CPU performs rasterization**
 * The **GPU only presents the final frame**
@@ -44,16 +40,17 @@ Enabling software WebRender:
 
 ---
 
-## 3. The Critical Optimization: "Update Rectangles" and "surface pool size"
+## 3. The Critical Optimization:
 
-By default WebRender is configured to generate and push, into the vram, an entire new frame everytime something change inside the page. 
+### 3a. "Rects" and "Surface pool size": 
+By default WebRender is configured to generate and push, into the vram, an entire new **tile** everytime something change inside the page but if a lot of changes happens at the same time, an entire new frame must be redrawn. 
 In order to optimize this behaviour, we need to dig into about:config and look for two strings to modify : 
 * gfx.webrender.compositor.max_update_rects = 128
 * gfx.webrender.compositor.surface-pool-size = 128
 
-This will creates **128 independent update regions with correlated buffers**.
+This will creates **128 independents concurrent updates of tile regions**.
 Instead of rewriting the entire frame in VRAM:
-* Only the **changed portion** of the page is updated
+* Only the **changed portion** (tile) of the page is updated
 * Memory traffic is drastically reduced
 * CPU workload becomes minimal
 
@@ -62,27 +59,46 @@ Example:
 * max_update_rects = 128
 * surface-pool-size = 8
 
-If more than eight regions need updating simultaneously:
-WebRender runs out of available surfaces
-It must either allocate new ones or wait for reuse
-The compositor pipeline stalls temporarily
+in this case if more than eight regions need updating simultaneously:
+* WebRender runs out of available surfaces
+* It must either allocate new ones or wait for reuse
+* The compositor pipeline stalls temporarily
 
 **This can lead to:**
 * micro-stuttering
 * increased CPU usage
 * additional memory allocation overhead
 
-**What Happens If the Pool Is Too Large ?**
+**What Happens If the rect or Pool Is Too Large ?**
 Example:
+* max_update_rects = 1024
 * surface-pool-size = 512
 
-This will not break rendering, but will introduces:
+**This will not break rendering, but will introduces:**
 * unnecessary overhead
 * larger memory footprint
 * more internal bookkeeping
 * no meaningful performance gain
+(Basically beyond a certain point, increasing both **rects** and the **pool size** only waste resources.)
 
-Basically beyond a certain point, increasing both **rects** and the **pool size** only waste resources.
+### 3b. "Tiles":
+WebRender divides the page into tiles and updates rects to efficiently rasterize only the changed parts of a page. This helps reduce CPU and RAM usage while keeping pages responsive and by default is set to portions of 512x512 tiles.
+
+**Too granular vs too large:**
+Too small tiles / too many rects: precise updates but more scheduling and CPU overhead.
+Too large tiles / too few rects: inefficient, large areas rasterized unnecessarily, more RAM usage.
+
+**Default values :**
+```
+gfx.webrender.blob-tile-size	= 256		
+gfx.webrender.picture-tile-height	= 512		
+gfx.webrender.picture-tile-width	= 512
+```
+* Tile size tuning depends on screen resolution, page complexity, and workload.
+* A tile size of 512x512 is often a good balance for picture tiles.
+* Blob tiles around 256px are efficient for most text-heavy pages.
+* Increasing max_update_rects allows multiple small updates to happen in a frame without collapsing into large redraws.
+* Together, these parameters drastically reduce CPU and RAM usage while keeping pages responsive.
 
 ---
 
