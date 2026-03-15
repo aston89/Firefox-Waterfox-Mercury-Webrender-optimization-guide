@@ -59,8 +59,8 @@ Instead of rewriting the entire frame in VRAM:
 
 **What Happens If the Pool Is Too Small ?**
 Example:
-*max_update_rects = 128
-*surface-pool-size = 8
+* max_update_rects = 128
+* surface-pool-size = 8
 
 If more than eight regions need updating simultaneously:
 WebRender runs out of available surfaces
@@ -68,19 +68,19 @@ It must either allocate new ones or wait for reuse
 The compositor pipeline stalls temporarily
 
 **This can lead to:**
-*micro-stuttering
-*increased CPU usage
-*additional memory allocation overhead
+* micro-stuttering
+* increased CPU usage
+* additional memory allocation overhead
 
 **What Happens If the Pool Is Too Large ?**
 Example:
-*surface-pool-size = 512
+* surface-pool-size = 512
 
 This will not break rendering, but will introduces:
-*unnecessary overhead
-*larger memory footprint
-*more internal bookkeeping
-*no meaningful performance gain
+* unnecessary overhead
+* larger memory footprint
+* more internal bookkeeping
+* no meaningful performance gain
 
 Basically beyond a certain point, increasing both **rects** and the **pool size** only waste resources.
 
