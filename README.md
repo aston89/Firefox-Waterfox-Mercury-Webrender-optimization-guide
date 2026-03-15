@@ -82,7 +82,7 @@ This will not break rendering, but will introduces:
 *more internal bookkeeping
 *no meaningful performance gain
 
-Beyond a certain point, increasing both **rects** and the **pool size** only waste resources.
+Basically beyond a certain point, increasing both **rects** and the **pool size** only waste resources.
 
 ---
 
