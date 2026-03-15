@@ -1,4 +1,4 @@
-# Firefox-Waterfox-Mercury-Webrender-optimization-guide
+## Firefox-Waterfox-Mercury-Webrender-optimization-guide
 This guide explains a highly efficient configuration for WebRender in software mode. The goal is maximum performance and minimal CPU/RAM usage, without relying on GPU-accelerated layer compositing, which often generates massive overhead.
 
 ---
@@ -103,6 +103,6 @@ gfx.webrender.precise-radial-gradients-swgl = false
 ---
 
 # Beyond barebone optimizations : why web browsers are mainly single-threaded
-Curious to know more about software renderers still beat gpu acceleration ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/DOM-SINGLE-THREADED.md)**
+Curious to know more about software renderers still beat gpu acceleration ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/DOM-SINGLE-THREADED.md)**.
 Curious to know more about browsers rendering pipelines ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/RENDERING_PIPELINE.md)**
 
