@@ -43,23 +43,25 @@ Enabling software WebRender:
 ## 3. The Critical Optimization:
 
 ### 3a. "Rects" and "Surface pool size": 
-By default WebRender is configured to generate and push, into the vram, an entire new **tile** everytime something change inside the page but if a lot of changes happens at the same time, an entire new frame must be redrawn. 
-In order to optimize this behaviour, we need to dig into about:config and look for two strings to modify : 
-* gfx.webrender.compositor.max_update_rects = 128
-* gfx.webrender.compositor.surface-pool-size = 128
+By default WebRender is configured to generate and push frames/layers into the vram, an entire new **tile** everytime something change inside the page but if a lot of changes happens at the same time, an entire new frame must be redrawn. 
+In order to optimize this behaviour, we need to dig into about:config and look for the strings to modify : 
+* gfx.webrender.compositor.max_update_rects
+* gfx.webrender.max-partial-present-rects 
+* gfx.webrender.compositor.surface-pool-size
 
-This will creates **128 independents concurrent updates of tile regions**.
-Instead of rewriting the entire frame in VRAM:
+This will let **a X of independents concurrent updates of tile regions**.
+Instead of rewriting the entire frame in *RAM*:
 * Only the **changed portion** (tile) of the page is updated
 * Memory traffic is drastically reduced
-* CPU workload becomes minimal
+* CPU workload becomes more efficient
 
 **What Happens If the Pool Is Too Small ?**
 Example:
-* max_update_rects = 128
-* surface-pool-size = 8
+* max_update_rects = 1
+* max-partial-present-rects = 1
+* surface-pool-size = 1 
 
-in this case if more than eight regions need updating simultaneously:
+in this case if more than 1 region need updating simultaneously:
 * WebRender runs out of available surfaces
 * It must either allocate new ones or wait for reuse
 * The compositor pipeline stalls temporarily
@@ -72,14 +74,24 @@ in this case if more than eight regions need updating simultaneously:
 **What Happens If the rect or Pool Is Too Large ?**
 Example:
 * max_update_rects = 1024
-* surface-pool-size = 512
+* max-partial-present-rects = 1024
+* surface-pool-size = 1024
 
 **This will not break rendering, but will introduces:**
-* unnecessary overhead
+* abnormal overhead
 * larger memory footprint
 * more internal bookkeeping
 * no meaningful performance gain
-(Basically beyond a certain point, increasing both **rects** and the **pool size** only waste resources.)
+(Basically beyond a certain point, increasing both rects and the pool size only *waste resources*.)
+
+**Wich value should i set then ?**
+It's recommended to use a value equal to the number of your cpu cores/thread for example if you have 8 core and 16 thread (hyperthreading) it's advisable to set :
+* max_update_rects = 16
+* max-partial-present-rects = 16
+while instead, for the pool size, the sweet spoot inbetween memory footprint and reasonable necessity is around 4 times the above tuned parameter to compensate frame overlap and reuse latency :
+* surface-pool-size = 64
+
+**So what if i have a threadripper ? 128 threads equal to 128 rects ?** not exactly ! Keep using a moderate value (typically 2–16), increasing beyond that rarely improves performance in CPU rendering mode and will introduce overhead)
 
 ### 3b. "Tiles":
 WebRender divides the page into tiles and updates rects to efficiently rasterize only the changed parts of a page. This helps reduce CPU and RAM usage while keeping pages responsive and by default is set to portions of 512x512 tiles.
