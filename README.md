@@ -210,6 +210,7 @@ grayscale anti-aliasing or full pixel aliasing (depending on machine configurati
 
 **When to use this tweak ?**
 CPU-only rendering setups, low-power systems, performance-critical scenarios, text-heavy scrolling workloads.
+
 **When is not recommended ?**
 high-DPI displays where clarity matters or users sensitive to text sharpness.
 
