@@ -109,7 +109,7 @@ gfx.webrender.picture-tile-width	= 512
 * Increasing max_update_rects allows multiple small updates to happen in a frame without collapsing into large redraws.
 
 ### 3c. "Blob Tiles":
-The tile size for rasterizing complex text and vector shapes are often called "blobs".
+The tile size for rasterizing complex text and vector shapes are called "blobs".
 Blobs are cached separately from picture tiles to avoid re-rasterizing vector graphics repeatedly.
 Smaller blob tiles increase cache hits for small vector updates but consume more bookkeeping resources.
 ```
@@ -118,19 +118,27 @@ gfx.webrender.blob-tile-size = 256
 * Each blob tile is 256x256 pixels.
 * Default value is often ok-ish.
 
-#### Tile size tradeoffs
+#### Tiles and blob tradeoffs :
 
-**Smaller tiles (more granular)**
+**Smaller (more granular)**
 * More precise updates
 * Higher cache efficiency for small changes
 * Increased CPU overhead (scheduling, bookkeeping)
 * Potentially higher memory usage
-
 **Larger tiles:**
 * Fewer tiles to manage
 * Lower CPU overhead
 * More unnecessary rasterization (overdraw)
 * Less efficient for dynamic content
+
+**Smaller blob:**
+* Better cache reuse for small updates
+* Reduced re-rasterization of text
+* Higher CPU overhead (more tiles to manage)
+**Larger blob:**
+* Less bookkeeping
+* More redundant rasterization
+* Less efficient for dynamic text-heavy content
 
 ---
 
