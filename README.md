@@ -94,7 +94,7 @@ while instead, for the pool size, the sweet spoot inbetween memory footprint and
 **So what if i have a threadripper ? 128 threads equal to 128 rects ?** not exactly ! Keep using a moderate value (typically 2–16), increasing beyond that rarely improves performance in CPU rendering mode and will introduce overhead)
 
 ### 3b. "Tiles":
-WebRender divides the page into tiles and updates rects to efficiently rasterize only the changed parts of a page. This helps reduce CPU and RAM usage while keeping pages responsive and by default is set to portions of 512x512 tiles.
+WebRender divides the page into tiles and updates rects to efficiently rasterize only the changed parts of a page. This helps reduces CPU workload and optimizes memory usage while keeping pages responsive and by default is set to portions of 512x512 tiles.
 
 **Too granular vs too large:**
 * Too small tiles / too many rects: precise updates but more scheduling and CPU overhead.
@@ -117,6 +117,20 @@ gfx.webrender.blob-tile-size = 256
 ```
 * Each blob tile is 256x256 pixels.
 * Default value is often ok-ish.
+
+#### Tile size tradeoffs
+
+**Smaller tiles (more granular)**
+* More precise updates
+* Higher cache efficiency for small changes
+* Increased CPU overhead (scheduling, bookkeeping)
+* Potentially higher memory usage
+
+**Larger tiles:**
+* Fewer tiles to manage
+* Lower CPU overhead
+* More unnecessary rasterization (overdraw)
+* Less efficient for dynamic content
 
 ---
 
