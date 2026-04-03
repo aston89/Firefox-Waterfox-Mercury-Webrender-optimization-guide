@@ -40,9 +40,9 @@ Enabling software WebRender:
 
 ---
 
-## 3. The Critical Optimization:
+## 3. The Critical Optimizations
 
-### 3a. "Rects" and "Surface pool size": 
+### 3a. Rects and Surface pool size: 
 By default WebRender is configured to generate and push frames/layers into the vram, an entire new **tile** everytime something change inside the page but if a lot of changes happens at the same time, an entire new frame must be redrawn. 
 In order to optimize this behaviour, we need to dig into about:config and look for the strings to modify : 
 * gfx.webrender.compositor.max_update_rects
@@ -93,7 +93,7 @@ while instead, for the pool size, the sweet spoot inbetween memory footprint and
 
 **So what if i have a threadripper ? 128 threads equal to 128 rects ?** not exactly ! Keep using a moderate value (typically 2–16), increasing beyond that rarely improves performance in CPU rendering mode and will introduce overhead)
 
-### 3b. "Tiles":
+### 3b. Tiles:
 WebRender divides the page into tiles and updates rects to efficiently rasterize only the changed parts of a page. This helps reduces CPU workload and optimizes memory usage while keeping pages responsive and by default is set to portions of 512x512 tiles.
 
 **Too granular vs too large:**
@@ -120,7 +120,7 @@ gfx.webrender.picture-tile-width	= 512
 * More unnecessary rasterization (overdraw)
 * Less efficient for dynamic content
 
-### 3c. "Blob Tiles":
+### 3c. Blob Tiles:
 The tile size for rasterizing complex text and vector shapes are called "blobs".
 Blobs are cached separately from picture tiles to avoid re-rasterizing vector graphics repeatedly.
 Smaller blob tiles increase cache hits for small vector updates but consume more bookkeeping resources.
@@ -174,7 +174,7 @@ Performance gains are most visible in CPU rendering mode
 Efficient text rendering is achieved by combining **coarse-grained caching** (blob tiles) and **fine-grained caching** (glyph cache)
 Balancing both levels is key to minimizing CPU load and improving smoothness
 
-### 3e. Disabling ClearType
+### 3e. Disabling ClearType:
 ClearType is the default text smoothing technique on Windows, based on subpixel rendering.
 It improves text clarity by using the RGB subpixel structure of LCD displays.
 While visually effective, it introduces additional processing overhead during text rasterization.
@@ -214,9 +214,43 @@ CPU-only rendering setups, low-power systems, performance-critical scenarios, te
 **When is not recommended ?**
 high-DPI displays where clarity matters or users sensitive to text sharpness.
 
----
+### 3f. Retaining Display List for Stacking Contexts:
+By default, Firefox may not retain display lists for stacking contexts.  
+Stacking contexts are groups of elements that WebRender treats as separate sub-scenes (e.g., due to z-index, opacity, transform, filters).
+Frequent invalidation of stacking contexts can force repeated rebuilds of display lists, reducing cache effectiveness and increasing CPU workload.
+Keeping stacking contexts retained allows WebRender to reuse display lists across frames, which improves performance in complex UIs, especially in CPU rendering mode:
+```
+layout.display-list.retain.sc = true
+```
+This setting helps ensure that display lists for stacking contexts are kept alive and reused, reducing unnecessary rebuilds and lowering CPU overhead.
 
-## 3e. Gradients:
+### 3g. Thread‑Local Arenas for WebRender Threads:
+Firefox’s memory allocator (jemalloc) supports thread‑local arenas which can reduce lock contention when threads do most allocations and deallocations on themselves.
+WebRender exposes two preferences to optionally enable dedicated arenas for specific internal threads:
+```
+gfx.webrender.frame-builder-thread-local-arena 
+gfx.webrender.scene-builder-thread-local-arena
+```
+These prefs control whether a dedicated thread‑local arena is used for allocations on the frame builder and scene builder threads.
+A thread‑local arena can reduce contention for locks during allocations when that thread is the primary user of its arena.
+By default these are false (disabled), so enabling them can reduce allocation bottlenecks during scene building and frame construction.
+
+**Note:** Thread‑local arenas do not change the fundamental rendering pipeline; they optimize memory allocation patterns. Their benefits are most noticeable under heavy parallel allocation load, and behavior depends on the specific workload and threading pattern in WebRender.
+Thread‑local arenas help reduce allocator contention but are not a substitute for good cache locality and reduced invalidation.
+
+### 3h. Worker Threads:
+WebRender uses a pool of worker threads for raster and related tasks. The *gfx.webrender.workers* preference controls the maximum number of worker threads that WebRender will create:
+```
+dom.workers.maxPerDomain = (number of your cpu core/threads)
+```
+By default this value is 512 but that number is only an upper bound.
+Firefox internally limits the actual worker count based on available hardware and other constraints.
+Simply increasing this value alone does not proportionally increase parallelism and can introduce bookkeeping overhead if not paired with an appropriate workload.
+In practice, tuning this value to reflect the number of available core's threads could potentially yields better CPU utilization without excessive contention or overhead.
+This reduces scheduling overhead and aligns the worker pool with actual CPU capacity, which can help avoid excessive thread management costs in CPU‑bound rendering.
+Worker thread count should align with system capabilities and overall rendering workload. Too many threads can degrade performance due to overhead.
+
+### 3z. Gradients:
 Some websites make heavy use of gradient calculations.
 These operations can be expensive in software rendering.
 Disabling precise gradient calculations reduces CPU usage while keeping visual differences negligible.
