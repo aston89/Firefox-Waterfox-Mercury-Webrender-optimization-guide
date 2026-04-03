@@ -140,14 +140,86 @@ gfx.webrender.blob-tile-size = 256
 * More redundant rasterization
 * Less efficient for dynamic text-heavy content
 
+### 3d. Text Rendering Optimization (Blob Tiles + Font Cache):
+Text rendering in WebRender relies on a combination of blob images and glyph-level caching. Understanding how these interact is critical for optimizing CPU-based rendering performance.
+Blob tiles handle large-scale rasterization of text regions (entire paragraphs, UI blocks, vector content).
+Font (glyph) cache stores individual character shapes (glyph bitmaps reused across frames).
+
+**Rendering pipeline (simplified):**
+1 Text is converted into vector shapes
+2 Shapes are grouped into blob images
+3 Blob images are rasterized into tiles
+4 Individual glyphs are cached separately in the font cache
+
+**Why this matters:**
+* Blob tiles avoid re-rasterizing entire text regions
+* Font cache avoids re-rasterizing individual glyphs
+* Together, they significantly reduce CPU workload during scrolling and updates
+
+**Key interaction:**
+* Blob tiles operate at a macro level (text blocks)
+* Font cache operates at a micro level (characters)
+  
+If both are well configured, Text rendering becomes **highly cache-efficient**, especially during scrolling
+
+Recommended configuration (CPU rendering):
+```
+gfx.content.skia-font-cache-size = 32–64
+```
+
+**Notes:**
+Blob caching reduces large-scale raster work
+Font cache reduces fine-grained glyph work
+Performance gains are most visible in CPU rendering mode
+Efficient text rendering is achieved by combining **coarse-grained caching** (blob tiles) and **fine-grained caching** (glyph cache)
+Balancing both levels is key to minimizing CPU load and improving smoothness
+
+### 3e. Disabling ClearType
+ClearType is the default text smoothing technique on Windows, based on subpixel rendering.
+It improves text clarity by using the RGB subpixel structure of LCD displays.
+While visually effective, it introduces additional processing overhead during text rasterization.
+
+**How ClearType works:**
+Instead of rendering text using whole pixels, each pixel is split into subpixels (R, G, B).
+Glyph edges are calculated at subpixel precision.
+Additional filtering and blending is applied.
+(This results in sharper text and better readability at small sizes)
+
+**Why it adds overhead:**
+ClearType increases rendering complexity because adds more calculations per glyph (subpixel precision), additional blending operations resulting in more complex rasterization pipeline.
+In CPU rendering mode, this translates into a higher cost per glyph so more CPU usage during text rendering.
+
+**You can reduce this overhead by switching to simpler rendering modes:**
+```
+gfx.font_rendering.cleartype_params.rendering_mode = 0
+gfx.font_rendering.cleartype_params.cleartype_level = 0
+```
+**What happens when disabled ?**
+Without ClearType, Firefox falls back to simpler methods:
+grayscale anti-aliasing or full pixel aliasing (depending on machine configuration).
+
+**Pros:**
+* Lower CPU usage
+* Faster glyph rasterization
+* Smoother scrolling in text-heavy pages
+
+**Cons:**
+* Text appears less sharp
+* Reduced readability at small font sizes
+* Loss of subpixel precision
+
+**When to use this tweak ?**
+CPU-only rendering setups, low-power systems, performance-critical scenarios, text-heavy scrolling workloads.
+
+**when is not recommended ?**
+high-DPI displays where clarity matters or users sensitive to text sharpness.
+
 ---
 
-## 4. Optional Fine Tuning
-
+## 3e. Gradients:
 Some websites make heavy use of gradient calculations.
 These operations can be expensive in software rendering.
 Disabling precise gradient calculations reduces CPU usage while keeping visual differences negligible.
-
 ```
 gfx.webrender.precise-conic-gradients = false		
 gfx.webrender.precise-conic-gradients-swgl = false		
