@@ -41,6 +41,25 @@ Enabling software WebRender:
 ---
 
 ## 3. The Critical Optimizations
+These settings operate at different levels of the WebRender rendering and presentation pipeline.
+**Picture tiles** determine how rendered picture content is spatially partitioned into independently managed regions. Changing the tile dimensions therefore changes the granularity at which WebRender can cache, invalidate and rebuild rendered content.
+**Update-rect limits**, on the other hand, operate later in the pipeline. They limit how many separate changed regions can be propagated as partial updates toward the compositor/presentation stage. They do not define the tile geometry itself; the resulting update rectangles may cover one or several tiles, and their final shape depends on which parts of the rendered scene actually changed.
+This distinction is important when tuning the two groups together:
+```text
+picture content
+picture tiles
+invalidation / retained rendering
+changed regions
+update rectangles
+partial presentation / compositor
+Present1
+```
+Smaller tiles can provide finer-grained invalidation and reduce the amount of content that needs to be rebuilt when only a small region changes, but they can also increase bookkeeping and the number of regions involved.
+Conversely, allowing more update rectangles gives the compositor more freedom to preserve multiple independent changes instead of merging them into fewer, potentially larger update regions, but increases the amount of metadata and processing required to manage those regions.
+They should therefore be tuned together, but they are **not interchangeable**:
+> **Tile size controls the granularity of rendered content; update-rect limits control how much of that granularity can survive through the partial-update/presentation path.**
+For this reason, a `512×512` picture-tile configuration does not imply a particular number of update rectangles. The two values describe different stages of the pipeline and should be optimized according to the workload rather than mathematically matched to one another.
+
 
 ### 3a. Rects and Surface pool size: 
 By default WebRender is configured to generate and push frames/layers into the vram, an entire new **tile** everytime something change inside the page but if a lot of changes happens at the same time, an entire new frame must be redrawn. 
@@ -49,8 +68,8 @@ In order to optimize this behaviour, we need to dig into about:config and look f
 * gfx.webrender.max-partial-present-rects 
 * gfx.webrender.compositor.surface-pool-size
 
-This will let **a X of independents concurrent updates of tile regions**.
-Instead of rewriting the entire frame in *RAM*:
+These parameters **limit how many update regions can be represented and processed as partial updates** before WebRender/compositing has to fall back to a less granular update.
+Instead of requiring a large contiguous region to be updated, **partial presentation** can preserve smaller independent update regions:
 * Only the **changed portion** (tile) of the page is updated
 * Memory traffic is drastically reduced
 * CPU workload becomes more efficient
@@ -85,7 +104,7 @@ Example:
 (Basically beyond a certain point, increasing both rects and the pool size only *waste resources*.)
 
 **Wich value should i set then ?**
-It's recommended to use a value equal to the number of your cpu cores/thread for example if you have 8 core and 16 thread (hyperthreading) it's advisable to set :
+A moderate value is generally preferable. On a CPU-rendered system, values such as 8–16 provide enough granularity for multiple independent updates without creating excessive compositor bookkeeping:
 * max_update_rects = 16
 * max-partial-present-rects = 16
 while instead, for the pool size, the sweet spoot inbetween memory footprint and reasonable necessity is around 4 times the above tuned parameter to compensate frame overlap and reuse latency :
@@ -94,7 +113,7 @@ while instead, for the pool size, the sweet spoot inbetween memory footprint and
 **So what if i have a threadripper ? 128 threads equal to 128 rects ?** not exactly ! Keep using a moderate value (typically 2–16), increasing beyond that rarely improves performance in CPU rendering mode and will introduce overhead)
 
 ### 3b. Tiles:
-WebRender divides the page into tiles and updates rects to efficiently rasterize only the changed parts of a page. This helps reduces CPU workload and optimizes memory usage while keeping pages responsive and by default is set to portions of 512x512 tiles.
+WebRender divides rendered picture content into tiles, while the compositor can represent changes as update rectangles.
 
 **Too granular vs too large:**
 * Too small tiles / too many rects: precise updates but more scheduling and CPU overhead.
@@ -106,7 +125,7 @@ gfx.webrender.picture-tile-width	= 512
 * Tile size tuning depends on screen resolution, page complexity, and workload.
 * A tile size of 512x512 is often a **good balance** for picture tiles.
 * Blob tiles around 256px are efficient for most text-heavy pages.
-* Increasing max_update_rects allows multiple small updates to happen in a frame without collapsing into large redraws.
+* A higher update-rect limit allows more independent partial updates to be retained instead of forcing them into fewer, larger update regions.
   
 **Smaller (more granular):**
 * More precise updates
@@ -121,17 +140,17 @@ gfx.webrender.picture-tile-width	= 512
 * Less efficient for dynamic content
 
 ### 3c. Blob Tiles:
-The tile size for rasterizing complex text and vector shapes are called "blobs".
+Blob tiles are used when WebRender rasterizes blob content such as text and vector graphics.
 Blobs are cached separately from picture tiles to avoid re-rasterizing vector graphics repeatedly.
 Smaller blob tiles increase cache hits for small vector updates but consume more bookkeeping resources.
 ```
 gfx.webrender.blob-tile-size = 256
 ```
-* Each blob tile is 256x256 pixels.
+* With 256, blob content is rasterized in 256×256 tiles.”.
 * Default value is often ok-ish.
 
 **Smaller blob:**
-* Better cache reuse for small updates
+* Can improve cache reuse for small updates.
 * Reduced re-rasterization of text
 * Higher CPU overhead (more tiles to manage)
   
