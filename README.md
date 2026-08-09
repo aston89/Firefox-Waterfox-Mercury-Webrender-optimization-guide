@@ -250,6 +250,41 @@ In practice, tuning this value to reflect the number of available core's threads
 This reduces scheduling overhead and aligns the worker pool with actual CPU capacity, which can help avoid excessive thread management costs in CPU‑bound rendering.
 Worker thread count should align with system capabilities and overall rendering workload. Too many threads can degrade performance due to overhead.
 
+
+### 3i. WebRender Software D3D11 Upload Mode:
+When using software WebRender, avoiding synchronization stalls can be more important than minimizing every redundant operation.
+```
+gfx.webrender.software.d3d11.upload-mode = 3  (default 4 on FF153)
+```
+Mode `3` favors keeping the rendering/presentation pipeline moving instead of waiting unnecessarily for previous operations to complete.
+This is particularly useful for:
+* rapid scrolling
+* dynamically changing pages
+* software WebRender configurations
+* workloads where CPU rasterization is fast enough that synchronization becomes the larger bottleneck
+
+The philosophy is simple:
+> **Prefer a little redundant work over stalling the pipeline.**
+This works well alongside the other software WebRender optimizations because it does not try to reduce the amount of work at all costs; it reduces the likelihood that otherwise independent rendering work gets serialized by synchronization.
+Benchmark against the default value on your own workload. The target is smoother frame delivery and fewer stalls, not necessarily lower total rendering work.
+
+### 3l. WebRender Batching Lookback:
+WebRender's batching system searches previous primitives for opportunities to merge compatible rendering operations.
+```
+gfx.webrender.batching.lookback = 40  (default 10 on FF153)
+```
+A higher lookback gives the batch builder more opportunities to find compatible primitives instead of immediately creating another batch.
+The trade-off is a small increase in CPU-side batch construction work.
+For software WebRender, this can be worthwhile because CPU rasterization is often fast enough that reducing unnecessary rendering operations is preferable to minimizing the batcher's own bookkeeping.
+```
+smaller lookback : less searching : fewer batching opportunities
+
+larger lookback : more searching : more batching opportunities
+```
+This is **not** a frame queue, synchronization depth, or latency setting. It is a batching heuristic.
+Together with the other WebRender tuning parameters, the goal is to favor efficient continuous rendering rather than aggressively minimizing every individual operation.
+
+
 ### 3z. Gradients:
 Some websites make heavy use of gradient calculations.
 These operations can be expensive in software rendering.
