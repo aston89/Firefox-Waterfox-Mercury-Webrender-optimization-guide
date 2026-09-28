@@ -431,4 +431,5 @@ It applies to newer Firefox builds where the preference is exposed. In testing o
 * Curious to know more about software renderers still beat gpu acceleration ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/DOM_SINGLE_THREADED.md)**
 * Curious to know more about browsers rendering pipelines ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/RENDERING_PIPELINE.md)**
 * curious to know more about GPU layers ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/GPU_LAYERS.md)**
+* Curious to know more about JavaScript compilation? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/JS_COMPILE.md)**
 
