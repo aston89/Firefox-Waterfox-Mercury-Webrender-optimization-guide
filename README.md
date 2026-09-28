@@ -390,7 +390,7 @@ set "JIT_OPTION_ionMaxLocalsAndArgs=50000"
 set "JIT_OPTION_branchPruningThreshold=2000"
 START "" "%cd%\browser.exe" --profile "%~dp0%\USER_DATA"
 ```
-**warning:** this configuration will give temporary huge spikes in ram up to 10gb for big SPA, be sure to have a lot of paging if you proceed to go even further.
+**warning:** inliningEntryThreshold=10 will give temporary huge spikes in ram up to 16gb for big SPA, be sure to have a lot of paging if you proceed to the absolute compiling aggressiveness.
 Firefox reads these values from the environment using the `JIT_OPTION_<name>` convention. Its defaults include `trialInliningWarmUpThreshold=500`, `trialInliningInitialWarmUpCount=250`, `inliningEntryThreshold=100`, `smallFunctionMaxBytecodeLength=130`, `ionMaxScriptSize=100000`, `ionMaxLocalsAndArgs=10000`, and `branchPruningThreshold=4000`.
 These settings make Trial Inlining and Ion admission substantially more aggressive:
 ```text
