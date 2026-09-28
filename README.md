@@ -320,7 +320,7 @@ gfx.webrender.precise-radial-gradients-swgl = false
 
 ## 4. JavaScript / SpiderMonkey JIT & Script Loading
 
-These optimizations target the JavaScript execution pipeline rather than WebRender. They were tested on Firefox 129 / Mercury 129 and are intended as an aggressive throughput-oriented profile.
+These optimizations target the JavaScript execution pipeline rather than WebRender. They were tested on Firefox / Mercury and are intended as an aggressive throughput-oriented profile.
 
 ### 4a. JIT warm-up
 Lower the warm-up thresholds so JavaScript reaches the JIT tiers earlier:
