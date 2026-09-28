@@ -257,19 +257,6 @@ By default these are false (disabled), so enabling them can reduce allocation bo
 **Note:** Thread‑local arenas do not change the fundamental rendering pipeline; they optimize memory allocation patterns. Their benefits are most noticeable under heavy parallel allocation load, and behavior depends on the specific workload and threading pattern in WebRender.
 Thread‑local arenas help reduce allocator contention but are not a substitute for good cache locality and reduced invalidation.
 
-### 3h. Worker Threads:
-WebRender uses a pool of worker threads for raster and related tasks. The *gfx.webrender.workers* preference controls the maximum number of worker threads that WebRender will create:
-```
-dom.workers.maxPerDomain = (number of your cpu core/threads)
-```
-By default this value is 512 but that number is only an upper bound.
-Firefox internally limits the actual worker count based on available hardware and other constraints.
-Simply increasing this value alone does not proportionally increase parallelism and can introduce bookkeeping overhead if not paired with an appropriate workload.
-In practice, tuning this value to reflect the number of available core's threads could potentially yields better CPU utilization without excessive contention or overhead.
-This reduces scheduling overhead and aligns the worker pool with actual CPU capacity, which can help avoid excessive thread management costs in CPU‑bound rendering.
-Worker thread count should align with system capabilities and overall rendering workload. Too many threads can degrade performance due to overhead.
-
-
 ### 3h. JavaScript Worker Threads
 `dom.workers.maxPerDomain` **does not control WebRender's internal worker pool**. It controls the maximum number of JavaScript Web Workers that a single domain is allowed to run concurrently.
 ```text
@@ -425,7 +412,7 @@ When available, this controls the maximum number of parallel marking threads. Ke
 
 These settings are workload-sensitive. Validate with repeated cold-load and warm-load tests on the target browser/build.
 
-### 4l Baseline JIT Off-Thread Compilation Strategy
+### 4l. Baseline JIT Off-Thread Compilation Strategy
 ```text
 javascript.options.baselinejit.offthread_compilation_strategy = 3
 ```
