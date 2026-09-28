@@ -270,22 +270,31 @@ This reduces scheduling overhead and aligns the worker pool with actual CPU capa
 Worker thread count should align with system capabilities and overall rendering workload. Too many threads can degrade performance due to overhead.
 
 
-### 3i. WebRender Software D3D11 Upload Mode:
-When using software WebRender, avoiding synchronization stalls can be more important than minimizing every redundant operation.
+### 3h. JavaScript Worker Threads
+`dom.workers.maxPerDomain` **does not control WebRender's internal worker pool**. It controls the maximum number of JavaScript Web Workers that a single domain is allowed to run concurrently.
+```text
+dom.workers.maxPerDomain = 512
 ```
-gfx.webrender.software.d3d11.upload-mode = 3  (default 4 on FF153)
-```
-Mode `3` favors keeping the rendering/presentation pipeline moving instead of waiting unnecessarily for previous operations to complete.
-This is particularly useful for:
-* rapid scrolling
-* dynamically changing pages
-* software WebRender configurations
-* workloads where CPU rasterization is fast enough that synchronization becomes the larger bottleneck
+`512` is already the modern Firefox default and is intended to be effectively unlimited for normal workloads while still providing an abuse-prevention ceiling. It is an upper bound, **not a thread count**. Firefox does not create 512 threads when this value is set to 512, nor does setting it to the number of CPU cores configure WebRender's worker pool.
 
-The philosophy is simple:
-> **Prefer a little redundant work over stalling the pipeline.**
-This works well alongside the other software WebRender optimizations because it does not try to reduce the amount of work at all costs; it reduces the likelihood that otherwise independent rendering work gets serialized by synchronization.
-Benchmark against the default value on your own workload. The target is smoother frame delivery and fewer stalls, not necessarily lower total rendering work.
+The actual amount of parallel JavaScript execution depends on what the website creates and how it distributes work:
+```text
+page JavaScript
+      │
+      ├── Worker 0
+      ├── Worker 1
+      ├── Worker 2
+      └── Worker N
+```
+
+Therefore:
+```text
+dom.workers.maxPerDomain = 512
+```
+
+should be treated as **removing an artificial worker-count bottleneck**, rather than as a command to use 512 CPU threads.
+WebRender's internal raster/scene-building workers are managed separately by Gecko/WebRender and are not configured through `dom.workers.maxPerDomain`. Firefox exposes Web Workers, Service Workers and other worker types as separate runtime entities.
+For systems with many-core CPUs, keeping the default `512` is generally preferable to reducing it to the CPU thread count, because the preference is only a concurrency ceiling; the browser and the page still decide how many workers actually exist and execute work.
 
 ### 3l. WebRender Batching Lookback:
 WebRender's batching system searches previous primitives for opportunities to merge compatible rendering operations.
