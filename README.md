@@ -416,6 +416,18 @@ When available, this controls the maximum number of parallel marking threads. Ke
 
 These settings are workload-sensitive. Validate with repeated cold-load and warm-load tests on the target browser/build.
 
+### 4l Baseline JIT Off-Thread Compilation Strategy
+```text
+javascript.options.baselinejit.offthread_compilation_strategy = 3
+```
+On Firefox builds that expose this preference, `3` enables the **eager + on-demand off-thread Baseline compilation strategy**, allowing Baseline compilation to be scheduled off the main thread both eagerly and when additional compilation is requested.
+
+```text
+2 = eager OMT compilation
+3 = eager + on-demand OMT compilation
+```
+It applies to newer Firefox builds where the preference is exposed. In testing on Firefox mainline, changing it from `2` to `3` produced a noticeable improvement in JavaScript-heavy page loading and warm-up.
+
 ---
 
 ## 5. Beyond barebone optimizations : why web browsers are mainly single-threaded ?
