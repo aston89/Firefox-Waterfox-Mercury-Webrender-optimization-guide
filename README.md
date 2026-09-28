@@ -318,7 +318,107 @@ gfx.webrender.precise-radial-gradients-swgl = false
 
 ---
 
-## 4. Beyond barebone optimizations : why web browsers are mainly single-threaded ?
+## 4. JavaScript / SpiderMonkey JIT & Script Loading
+
+These optimizations target the JavaScript execution pipeline rather than WebRender. They were tested on Firefox 129 / Mercury 129 and are intended as an aggressive throughput-oriented profile.
+
+### 4a. JIT warm-up
+Lower the warm-up thresholds so JavaScript reaches the JIT tiers earlier:
+```text
+javascript.options.blinterp.threshold = 1
+javascript.options.baselinejit.threshold = 10
+javascript.options.ion.threshold = 300
+```
+Firefox defaults are `10`, `100` and `1500` respectively. `blinterp.threshold` controls when a script enters the Baseline Interpreter, `baselinejit.threshold` when it is compiled by Baseline JIT, and `ion.threshold` when it is considered for Ion compilation.
+This profile favors early tier-up instead of leaving frequently executed code in lower tiers for longer.
+
+### 4b. Ion bailout tolerance
+```text
+javascript.options.ion.frequent_bailout_threshold = 50
+```
+Firefox defaults to `10`. This raises the number of bailouts without invalidation tolerated before Warp/Ion marks the script as having frequent bailouts and invalidates it. A higher value can help workloads where Ion-compiled code is useful but occasionally bails out.
+
+### 4c. Aggressive inlining
+```text
+javascript.options.inlining_bytecode_max_length = 4096
+```
+Firefox 129 defaults to `130` bytecodes. This is the size threshold used by Warp when deciding whether a function is eligible for inlining. Raising it does not force every large function to be inlined; normal compiler heuristics still apply.
+This favors larger inline candidates and can expose more code to Ion/Warp optimizations at the cost of potentially larger generated code and longer compilation.
+
+### 4d. Concurrent JavaScript GC
+```text
+javascript.options.concurrent_multiprocess_gcs.cpu_divisor = 1
+javascript.options.concurrent_multiprocess_gcs.max = 0
+```
+Firefox 129 defaults to `cpu_divisor = 4` and `max = 0`. The runtime allows at most:
+```text
+MIN(max, MAX(NUM_CPUS / cpu_divisor, 1))
+```
+concurrent GCs between processes. With `max = 0`, the explicit maximum is effectively unlimited; with `cpu_divisor = 1`, the hardware CPU count becomes the practical limit.
+On high-core-count systems this can increase GC concurrency. The best value is workload-dependent.
+
+### 4e. Speculative off-main-thread script compilation
+```text
+dom.script_loader.external_scripts.speculate_async.enabled = true
+dom.script_loader.external_scripts.speculate_link_preload.enabled = true
+```
+Firefox 129 ships `speculate_async` and `speculate_link_preload` disabled by default. They enable speculative parsing/compilation for async scripts and link-preloaded scripts respectively. `speculative_omt_parse.enabled` is already `true` by default in Firefox 129.
+These settings move more parsing/compilation work ahead of demand and away from the main execution path.
+
+### 4f. Eager delazification for large script sets
+```text
+dom.script_loader.delazification.strategy = 255
+dom.script_loader.delazification.max_size = -1
+dom.script_loader.delazification.min_mem = 2
+```
+`strategy = 255` means parse functions eagerly together with the top level. Firefox 129 normally stops applying that strategy after 10 MiB of UTF-8 script data; `-1` disables that size cutoff.
+This is particularly relevant to very large JavaScript applications.
+
+### 4g. Bytecode cache strategy
+```text
+dom.script_loader.bytecode_cache.strategy = -1
+```
+
+Firefox 129 defaults to `0`. Other values use experimental bytecode-cache strategies; the exact behavior is implemented by `ScriptLoader::ShouldCacheBytecode`.
+This profile favors retaining compiled script information for subsequent loads.
+
+### 4h. JIT internal warm-up tuning
+The following `JIT_OPTION_*` variables are read by SpiderMonkey at process startup:
+```bat
+set "JIT_OPTION_trialInliningWarmUpThreshold=50"
+set "JIT_OPTION_trialInliningInitialWarmUpCount=30"
+set "JIT_OPTION_inliningEntryThreshold=10"
+set "JIT_OPTION_smallFunctionMaxBytecodeLength=2000"
+set "JIT_OPTION_ionMaxScriptSize=50000000"
+set "JIT_OPTION_ionMaxLocalsAndArgs=500000"
+set "JIT_OPTION_branchPruningThreshold=2000"
+START "" "%cd%\browser.exe" --profile "%~dp0%\USER_DATA"
+```
+Firefox reads these values from the environment using the `JIT_OPTION_<name>` convention. Its defaults include `trialInliningWarmUpThreshold=500`, `trialInliningInitialWarmUpCount=250`, `inliningEntryThreshold=100`, `smallFunctionMaxBytecodeLength=130`, `ionMaxScriptSize=100000`, `ionMaxLocalsAndArgs=10000`, and `branchPruningThreshold=4000`.
+These settings make Trial Inlining and Ion admission substantially more aggressive:
+```text
+earlier trial inlining
+earlier inlining eligibility
+larger functions considered "small"
+larger scripts accepted by Ion
+more locals/arguments accepted by Ion
+more aggressive branch pruning
+```
+Because these are environment variables rather than normal `about:config` preferences, firefox/waterfox/mercury must be launched from a BAT/CMD file:
+A complete restart is required after changing these `JIT_OPTION_*` values because SpiderMonkey reads them while constructing its JIT configuration.
+
+### 4i. Experimental / build-dependent GC marking
+Some Mercury/Waterfox builds may expose:
+```text
+javascript.options.mem.gc_max_parallel_marking_threads = 8
+```
+When available, this controls the maximum number of parallel marking threads. Keep this under the experimental section because availability and behavior are build-dependent.
+
+These settings are workload-sensitive. Validate with repeated cold-load and warm-load tests on the target browser/build.
+
+---
+
+## 5. Beyond barebone optimizations : why web browsers are mainly single-threaded ?
 * Curious to know more about software renderers still beat gpu acceleration ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/DOM_SINGLE_THREADED.md)**
 * Curious to know more about browsers rendering pipelines ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/RENDERING_PIPELINE.md)**
 * curious to know more about GPU layers ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/GPU_LAYERS.md)**
