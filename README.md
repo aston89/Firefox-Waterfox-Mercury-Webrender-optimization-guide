@@ -383,7 +383,7 @@ The following `JIT_OPTION_*` variables are read by SpiderMonkey at process start
 ```bat
 set "JIT_OPTION_trialInliningWarmUpThreshold=50"
 set "JIT_OPTION_trialInliningInitialWarmUpCount=30"
-set "JIT_OPTION_inliningEntryThreshold=10"
+set "JIT_OPTION_inliningEntryThreshold=30"
 set "JIT_OPTION_smallFunctionMaxBytecodeLength=2000"
 set "JIT_OPTION_ionMaxScriptSize=5000000"
 set "JIT_OPTION_ionMaxLocalsAndArgs=50000"
