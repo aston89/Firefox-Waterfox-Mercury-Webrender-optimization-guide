@@ -342,7 +342,7 @@ Firefox defaults to `10`. This raises the number of bailouts without invalidatio
 ```text
 javascript.options.inlining_bytecode_max_length = 4096
 ```
-Firefox 129 defaults to `130` bytecodes. This is the size threshold used by Warp when deciding whether a function is eligible for inlining. Raising it does not force every large function to be inlined; normal compiler heuristics still apply.
+Firefox defaults to `130` bytecodes. This is the size threshold used by Warp when deciding whether a function is eligible for inlining. Raising it does not force every large function to be inlined; normal compiler heuristics still apply.
 This favors larger inline candidates and can expose more code to Ion/Warp optimizations at the cost of potentially larger generated code and longer compilation.
 
 ### 4d. Concurrent JavaScript GC
@@ -350,7 +350,7 @@ This favors larger inline candidates and can expose more code to Ion/Warp optimi
 javascript.options.concurrent_multiprocess_gcs.cpu_divisor = 1
 javascript.options.concurrent_multiprocess_gcs.max = 0
 ```
-Firefox 129 defaults to `cpu_divisor = 4` and `max = 0`. The runtime allows at most:
+Firefox defaults to `cpu_divisor = 4` and `max = 0`. The runtime allows at most:
 ```text
 MIN(max, MAX(NUM_CPUS / cpu_divisor, 1))
 ```
@@ -362,7 +362,7 @@ On high-core-count systems this can increase GC concurrency. The best value is w
 dom.script_loader.external_scripts.speculate_async.enabled = true
 dom.script_loader.external_scripts.speculate_link_preload.enabled = true
 ```
-Firefox 129 ships `speculate_async` and `speculate_link_preload` disabled by default. They enable speculative parsing/compilation for async scripts and link-preloaded scripts respectively. `speculative_omt_parse.enabled` is already `true` by default in Firefox 129.
+Firefox ships `speculate_async` and `speculate_link_preload` disabled by default. They enable speculative parsing/compilation for async scripts and link-preloaded scripts respectively. `speculative_omt_parse.enabled` is already `true` by default in Firefox.
 These settings move more parsing/compilation work ahead of demand and away from the main execution path.
 
 ### 4f. Eager delazification for large script sets
@@ -371,7 +371,7 @@ dom.script_loader.delazification.strategy = 255
 dom.script_loader.delazification.max_size = -1
 dom.script_loader.delazification.min_mem = 2
 ```
-`strategy = 255` means parse functions eagerly together with the top level. Firefox 129 normally stops applying that strategy after 10 MiB of UTF-8 script data; `-1` disables that size cutoff.
+`strategy = 255` means parse functions eagerly together with the top level. Firefox normally stops applying that strategy after 10 MiB of UTF-8 script data; `-1` disables that size cutoff.
 This is particularly relevant to very large JavaScript applications.
 
 ### 4g. Bytecode cache strategy
@@ -379,7 +379,7 @@ This is particularly relevant to very large JavaScript applications.
 dom.script_loader.bytecode_cache.strategy = -1
 ```
 
-Firefox 129 defaults to `0`. Other values use experimental bytecode-cache strategies; the exact behavior is implemented by `ScriptLoader::ShouldCacheBytecode`.
+Firefox defaults to `0`. Other values use experimental bytecode-cache strategies; the exact behavior is implemented by `ScriptLoader::ShouldCacheBytecode`.
 This profile favors retaining compiled script information for subsequent loads.
 
 ### 4h. JIT internal warm-up tuning
