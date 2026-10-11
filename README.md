@@ -1,385 +1,312 @@
-## Firefox Waterfox Mercury : Webrender optimization guide
-This guide explains a highly efficient configuration for WebRender in software mode. The goal is maximum performance and minimal CPU/RAM usage, without relying on GPU-accelerated layer compositing, which often generates massive overhead.
+# Firefox / Waterfox / Mercury: WebRender and JavaScript Optimization Guide
+
+This guide collects **workload-specific experiments** for Firefox-family browsers, especially systems where GPU compositing has shown excessive overhead and software WebRender performs better.
+
+It is not a universal “maximum performance” preset. Firefox, Waterfox and Mercury can differ by version, build flags, graphics backend and SpiderMonkey implementation. A preference that helps one workload may increase memory use, compilation cost, CPU contention or input latency in another.
+
+> [!IMPORTANT]
+> **Start from the browser's defaults and benchmark one change at a time.** Keep a backup of the profile, record the exact browser/build and use `about:support` to verify the active graphics backend. Reset an experimental preference with its reset button rather than copying a numeric “default” from another Firefox release.
+
+## Field note: very large, modern single-page applications
+
+The aggressive JavaScript/JIT settings in §4 helped with hangs and responsiveness in an earlier workload on the author's system. After a major update to the ChatGPT single-page application in October 2026, the same general tuning approach was no longer a good fit: the page became much heavier, memory spikes appeared with aggressive JIT environment overrides, and scrolling remained sluggish.
+
+The environment overrides were removed and the custom JIT preferences were reset. This is an **observed compatibility regression on one system**, not proof that the settings are harmful in every browser or that JIT tuning alone caused every slowdown. The practical recommendation is to test the current application with the browser's normal JIT and garbage-collection defaults first. Keep the old settings only as a clearly labelled, optional legacy experiment.
 
 ---
 
-## 1. The Problem with GPU acceleration and layer compositing
-Webrender based browsers attempt to accelerate rendering using GPU and in theory this should improve performance but it often causes:
-* Massive **texture allocation**
-* Constant **CPU ↔ GPU synchronization**.
-* Increased **memory usage**
-* Significant **bookkeeping overhead**
+## 1. GPU acceleration and layer compositing: workload matters
 
-Each page layer becomes a separate GPU texture. The browser must constantly:
-* Upload textures
-* Synchronize layers
-* Track updates
-* Composite the final frame
+GPU acceleration often improves browser rendering, but it is not automatically the fastest path on every machine. Depending on the GPU, driver, browser build, display configuration and page workload, GPU compositing can introduce costs such as:
 
-For the vast majority of real-world websites this introduces **more overhead than benefits** even for complex pages such as:
-* YouTube
-* Google Maps
-* Large ChatGPT conversations
-* Social media feeds
+- GPU texture allocation and transfers;
+- CPU/GPU synchronization;
+- additional graphics-process memory;
+- compositor bookkeeping and driver overhead.
 
-Those mentioned above often perform **better without GPU layering**.
+These costs can be especially visible on some systems with complex, frequently changing pages. On the author's setup, software rendering has been preferable to the tested GPU-accelerated configuration, including during work with large ChatGPT conversations.
 
----
+That result should **not** be generalized to all hardware or websites. Compare both paths on the actual machine and workload before deciding which to keep.
 
 ## 2. Software WebRender
-WebRender can operate in **pure software raster mode**, while still using **D3D11 only as the presenter**.
-In this configuration:
-* The **CPU performs rasterization**
-* The **GPU only presents the final frame**
-* No texture layering overhead occurs
 
-Enabling software WebRender:
-* Tool / settings / Search "performance" and deselect "Use recommended performance settings"
-* type in the url'bar "about:config" and press enter
-* search for "gfx.webrender.software" and double click it, the value "true" shold appear right to it.
+Firefox-family builds can expose a software-rendering path for WebRender. The precise rasterization, presentation and compositing path depends on the browser version, operating system and graphics backend. Do not assume that enabling software WebRender means the GPU is still used only to present the final frame, or that every form of GPU texture/compositor overhead disappears.
+
+To test software WebRender on a supported build:
+
+1. Open **Settings → General → Performance** and deselect **Use recommended performance settings** if needed to expose the performance controls.
+2. Open `about:config`.
+3. Search for `gfx.webrender.software` and set it to `true` if the preference exists and the build honors it.
+4. Restart the browser and inspect `about:support` → **Graphics** to confirm the active backend and whether the intended path is actually in use.
+
+Keep other graphics preferences unchanged during this test. In particular, do not combine the test with changes to `layers.acceleration.force-enabled` or `layers.gpu-process.enabled`: change one variable at a time so the result is interpretable.
 
 ---
 
-## 3. The Critical Optimizations
-These settings operate at different levels of the WebRender rendering and presentation pipeline.
-**Picture tiles** determine how rendered picture content is spatially partitioned into independently managed regions. Changing the tile dimensions therefore changes the granularity at which WebRender can cache, invalidate and rebuild rendered content.
-**Update-rect limits**, on the other hand, operate later in the pipeline. They limit how many separate changed regions can be propagated as partial updates toward the compositor/presentation stage. They do not define the tile geometry itself; the resulting update rectangles may cover one or several tiles, and their final shape depends on which parts of the rendered scene actually changed.
-This distinction is important when tuning the two groups together:
+## 3. WebRender tuning
+
+The preferences below concern different parts of the rendering pipeline. Their availability and effect can vary between releases and forks. Treat the values as **test candidates**, not defaults that every user should apply.
+
+### 3a. Update rectangles and surface pool
+
+Picture tiles and update rectangles are related, but they describe different things:
+
+- **Picture tiles** partition rendered picture content into regions that can be cached and invalidated.
+- **Update rectangles** represent changed regions passed through later partial-update/presentation stages.
+- **Surface pools** help manage intermediate rendering surfaces and their reuse.
+
+Simplified pipeline:
+
 ```text
 picture content
-picture tiles
-invalidation / retained rendering
+    ↓
+picture tiles / retained rendering
+    ↓
 changed regions
+    ↓
 update rectangles
+    ↓
 partial presentation / compositor
-Present1
+    ↓
+presentation
 ```
-Smaller tiles can provide finer-grained invalidation and reduce the amount of content that needs to be rebuilt when only a small region changes, but they can also increase bookkeeping and the number of regions involved.
-Conversely, allowing more update rectangles gives the compositor more freedom to preserve multiple independent changes instead of merging them into fewer, potentially larger update regions, but increases the amount of metadata and processing required to manage those regions.
-They should therefore be tuned together, but they are **not interchangeable**:
-> **Tile size controls the granularity of rendered content; update-rect limits control how much of that granularity can survive through the partial-update/presentation path.**
-For this reason, a `512×512` picture-tile configuration does not imply a particular number of update rectangles. The two values describe different stages of the pipeline and should be optimized according to the workload rather than mathematically matched to one another.
 
+These mechanisms are not interchangeable. A `512×512` tile size does not imply any particular number of update rectangles. Smaller regions can reduce unnecessary work for small changes, but they also add bookkeeping; larger regions reduce management overhead but may cause more content to be rerasterized.
 
-### 3a. Rects and Surface pool size: 
-By default WebRender is configured to generate and push frames/layers into the vram, an entire new **tile** everytime something change inside the page but if a lot of changes happens at the same time, an entire new frame must be redrawn. 
-In order to optimize this behaviour, we need to dig into about:config and look for the strings to modify : 
-* gfx.webrender.compositor.max_update_rects
-* gfx.webrender.max-partial-present-rects 
-* gfx.webrender.compositor.surface-pool-size
+The following values are one **moderate experimental profile** used on the author's software-rendering setup:
 
-These parameters **limit how many update regions can be represented and processed as partial updates** before WebRender/compositing has to fall back to a less granular update.
-Instead of requiring a large contiguous region to be updated, **partial presentation** can preserve smaller independent update regions:
-* Only the **changed portion** (tile) of the page is updated
-* Memory traffic is drastically reduced
-* CPU workload becomes more efficient
-
-**What Happens If the Pool Is Too Small ?**
-Example:
-* max_update_rects = 1
-* max-partial-present-rects = 1
-* surface-pool-size = 1 
-
-in this case if more than 1 region need updating simultaneously:
-* WebRender runs out of available surfaces
-* It must either allocate new ones or wait for reuse
-* The compositor pipeline stalls temporarily
-
-**This can lead to:**
-* micro-stuttering
-* increased CPU usage
-* additional memory allocation overhead
-
-**What Happens If the rect or Pool Is Too Large ?**
-Example:
-* max_update_rects = 1024
-* max-partial-present-rects = 1024
-* surface-pool-size = 1024
-
-**This will not break rendering, but will introduces:**
-* abnormal overhead
-* larger memory footprint
-* more internal bookkeeping
-* no meaningful performance gain
-(Basically beyond a certain point, increasing both rects and the pool size only *waste resources*.)
-
-**Wich value should i set then ?**
-A moderate value is generally preferable. On a CPU-rendered system, values such as 8–16 provide enough granularity for multiple independent updates without creating excessive compositor bookkeeping:
-* max_update_rects = 16
-* max-partial-present-rects = 16
-while instead, for the pool size, the sweet spoot inbetween memory footprint and reasonable necessity is around 4 times the above tuned parameter to compensate frame overlap and reuse latency :
-* surface-pool-size = 64
-
-**So what if i have a threadripper ? 128 threads equal to 128 rects ?** not exactly ! Keep using a moderate value (typically 2–16), increasing beyond that rarely improves performance in CPU rendering mode and will introduce overhead)
-
-### 3b. Tiles:
-WebRender divides rendered picture content into tiles, while the compositor can represent changes as update rectangles.
-
-**Too granular vs too large:**
-* Too small tiles / too many rects: precise updates but more scheduling and CPU overhead.
-* Too large tiles / too few rects: inefficient, large areas rasterized unnecessarily, more RAM usage.
+```text
+gfx.webrender.compositor.max_update_rects = 16
+gfx.webrender.max-partial-present-rects = 16
+gfx.webrender.compositor.surface-pool-size = 64
 ```
-gfx.webrender.picture-tile-height	= 512		
-gfx.webrender.picture-tile-width	= 512
-```
-* Tile size tuning depends on screen resolution, page complexity, and workload.
-* A tile size of 512x512 is often a **good balance** for picture tiles.
-* Blob tiles around 256px are efficient for most text-heavy pages.
-* A higher update-rect limit allows more independent partial updates to be retained instead of forcing them into fewer, larger update regions.
-  
-**Smaller (more granular):**
-* More precise updates
-* Higher cache efficiency for small changes
-* Increased CPU overhead (scheduling, bookkeeping)
-* Potentially higher memory usage
-  
-**Larger tiles:**
-* Fewer tiles to manage
-* Lower CPU overhead
-* More unnecessary rasterization (overdraw)
-* Less efficient for dynamic content
 
-### 3c. Blob Tiles:
-Blob tiles are used when WebRender rasterizes blob content such as text and vector graphics.
-Blobs are cached separately from picture tiles to avoid re-rasterizing vector graphics repeatedly.
-Smaller blob tiles increase cache hits for small vector updates but consume more bookkeeping resources.
+These are not universal sweet spots. Too-small limits or pools may constrain reuse or cause less efficient updates; unnecessarily large values may increase memory and bookkeeping without improving frame delivery. Do not assume that increasing a limit increases performance.
+
+### 3b. Picture tile dimensions
+
+```text
+gfx.webrender.picture-tile-width
+gfx.webrender.picture-tile-height
 ```
+
+The exact preferences exposed by a build may vary. Values of `256` and `512` pixels have both been useful as experiment points, but no single tile dimension is optimal for every display resolution or page. Start with the build's own values and compare one change at a time while scrolling the same content.
+
+- Smaller tiles can make invalidation more local, but increase the number of regions to manage.
+- Larger tiles can reduce bookkeeping, but may rasterize more unchanged content.
+- The best result depends on update patterns, scene complexity, memory pressure and the active rendering backend.
+
+Do **not** mathematically match tile dimensions to update-rectangle limits; they govern different stages.
+
+### 3c. Blob tiles
+
+Blob-image caching may be used for text and vector content. Its precise behavior and available preferences depend on the build.
+
+```text
 gfx.webrender.blob-tile-size = 256
 ```
-* With 256, blob content is rasterized in 256×256 tiles.”.
-* Default value is often ok-ish.
 
-**Smaller blob:**
-* Can improve cache reuse for small updates.
-* Reduced re-rasterization of text
-* Higher CPU overhead (more tiles to manage)
-  
-**Larger blob:**
-* Less bookkeeping
-* More redundant rasterization
-* Less efficient for dynamic text-heavy content
+Use this only if the preference exists and the browser build actually honors it. Smaller blob tiles may improve reuse when small portions change, while increasing tile-management overhead; larger tiles may reduce bookkeeping but rerasterize more content after invalidation. Keep the build's default unless testing shows a repeatable improvement.
 
-### 3d. Text Rendering Optimization (Blob Tiles + Font Cache):
-Text rendering in WebRender relies on a combination of blob images and glyph-level caching. Understanding how these interact is critical for optimizing CPU-based rendering performance.
-Blob tiles handle large-scale rasterization of text regions (entire paragraphs, UI blocks, vector content).
-Font (glyph) cache stores individual character shapes (glyph bitmaps reused across frames).
+### 3d. Text rendering and font cache
 
-**Rendering pipeline (simplified):**
-1 Text is converted into vector shapes
-2 Shapes are grouped into blob images
-3 Blob images are rasterized into tiles
-4 Individual glyphs are cached separately in the font cache
+Text rendering can involve cached vector/blob content and a separate glyph/font cache. These caches work at different levels, and changing one does not guarantee a proportional improvement in scrolling.
 
-**Why this matters:**
-* Blob tiles avoid re-rasterizing entire text regions
-* Font cache avoids re-rasterizing individual glyphs
-* Together, they significantly reduce CPU workload during scrolling and updates
+An experimental value used on the author's system is:
 
-**Key interaction:**
-* Blob tiles operate at a macro level (text blocks)
-* Font cache operates at a micro level (characters)
-  
-If both are well configured, Text rendering becomes **highly cache-efficient**, especially during scrolling
-
-Recommended configuration (CPU rendering):
-```
-gfx.content.skia-font-cache-size = 32–64
+```text
+gfx.content.skia-font-cache-size = 64
 ```
 
-**Notes:**
-Blob caching reduces large-scale raster work
-Font cache reduces fine-grained glyph work
-Performance gains are most visible in CPU rendering mode
-Efficient text rendering is achieved by combining **coarse-grained caching** (blob tiles) and **fine-grained caching** (glyph cache)
-Balancing both levels is key to minimizing CPU load and improving smoothness
+The cache size's meaning and limits are build-specific. Test a small range only when text rendering is demonstrably the bottleneck; increasing a cache can trade memory for reuse and is not guaranteed to improve performance.
 
-### 3e. Disabling ClearType:
-ClearType is the default text smoothing technique on Windows, based on subpixel rendering.
-It improves text clarity by using the RGB subpixel structure of LCD displays.
-While visually effective, it introduces additional processing overhead during text rasterization.
+### 3e. ClearType and text sharpness
 
-**How ClearType works:**
-Instead of rendering text using whole pixels, each pixel is split into subpixels (R, G, B).
-Glyph edges are calculated at subpixel precision.
-Additional filtering and blending is applied.
-(This results in sharper text and better readability at small sizes)
+The following preferences have been used to test Windows text-rendering behavior:
 
-**Why it adds overhead:**
-ClearType increases rendering complexity because adds more calculations per glyph (subpixel precision), additional blending operations resulting in more complex rasterization pipeline.
-In CPU rendering mode, this translates into a higher cost per glyph so more CPU usage during text rendering.
-
-**You can reduce this overhead by switching to simpler rendering modes:**
-```
+```text
 gfx.font_rendering.cleartype_params.rendering_mode = 0
 gfx.font_rendering.cleartype_params.cleartype_level = 0
 ```
-**What happens when disabled ?**
-Without ClearType, Firefox falls back to simpler methods:
-grayscale anti-aliasing or full pixel aliasing (depending on machine configuration).
 
-**Pros:**
-* Lower CPU usage
-* Faster glyph rasterization
-* Smoother scrolling in text-heavy pages
+These values affect text appearance and rendering behavior, but do not assume that they produce a measurable performance gain on every build. Disabling or changing ClearType can make text less sharp, particularly at small sizes or on high-DPI displays. Keep the setting that provides acceptable readability unless a controlled test demonstrates a worthwhile benefit.
 
-**Cons:**
-* Text appears less sharp
-* Reduced readability at small font sizes
-* Loss of subpixel precision
+### 3f. Retained display lists for stacking contexts
 
-**When to use this tweak ?**
-CPU-only rendering setups, low-power systems, performance-critical scenarios, text-heavy scrolling workloads.
-
-**When is not recommended ?**
-high-DPI displays where clarity matters or users sensitive to text sharpness.
-
-### 3f. Retaining Display List for Stacking Contexts:
-By default, Firefox may not retain display lists for stacking contexts.  
-Stacking contexts are groups of elements that WebRender treats as separate sub-scenes (e.g., due to z-index, opacity, transform, filters).
-Frequent invalidation of stacking contexts can force repeated rebuilds of display lists, reducing cache effectiveness and increasing CPU workload.
-Keeping stacking contexts retained allows WebRender to reuse display lists across frames, which improves performance in complex UIs, especially in CPU rendering mode:
-```
+```text
 layout.display-list.retain.sc = true
 ```
-This setting helps ensure that display lists for stacking contexts are kept alive and reused, reducing unnecessary rebuilds and lowering CPU overhead.
 
-### 3g. Thread‑Local Arenas for WebRender Threads:
-Firefox’s memory allocator (jemalloc) supports thread‑local arenas which can reduce lock contention when threads do most allocations and deallocations on themselves.
-WebRender exposes two preferences to optionally enable dedicated arenas for specific internal threads:
-```
-gfx.webrender.frame-builder-thread-local-arena 
+This preference concerns retained display-list behavior for stacking contexts in builds that support it. Retaining data can avoid rebuilding some information, but benefit depends on how the page invalidates and changes. Treat it as a build-specific experiment and test scrolling, layout changes and memory use; reset it if the result is neutral or worse.
+
+### 3g. Thread-local arenas for WebRender threads
+
+Some builds may expose preferences such as:
+
+```text
+gfx.webrender.frame-builder-thread-local-arena
 gfx.webrender.scene-builder-thread-local-arena
 ```
-These prefs control whether a dedicated thread‑local arena is used for allocations on the frame builder and scene builder threads.
-A thread‑local arena can reduce contention for locks during allocations when that thread is the primary user of its arena.
-By default these are false (disabled), so enabling them can reduce allocation bottlenecks during scene building and frame construction.
 
-**Note:** Thread‑local arenas do not change the fundamental rendering pipeline; they optimize memory allocation patterns. Their benefits are most noticeable under heavy parallel allocation load, and behavior depends on the specific workload and threading pattern in WebRender.
-Thread‑local arenas help reduce allocator contention but are not a substitute for good cache locality and reduced invalidation.
+These relate to allocator behavior for particular WebRender threads, not to the rendering pipeline itself. A dedicated thread-local arena can reduce some allocation-lock contention, but it can also change memory behavior. Availability and implementation are build-dependent. Do not create missing preferences unless the relevant build documents them, and do not enable them without a repeatable benchmark.
 
-### 3h. JavaScript Worker Threads
-`dom.workers.maxPerDomain` **does not control WebRender's internal worker pool**. It controls the maximum number of JavaScript Web Workers that a single domain is allowed to run concurrently.
-```text
-dom.workers.maxPerDomain = 512
-```
-`512` is already the modern Firefox default and is intended to be effectively unlimited for normal workloads while still providing an abuse-prevention ceiling. It is an upper bound, **not a thread count**. Firefox does not create 512 threads when this value is set to 512, nor does setting it to the number of CPU cores configure WebRender's worker pool.
+### 3h. JavaScript Web Worker count is not the WebRender worker pool
 
-The actual amount of parallel JavaScript execution depends on what the website creates and how it distributes work:
-```text
-page JavaScript
-      │
-      ├── Worker 0
-      ├── Worker 1
-      ├── Worker 2
-      └── Worker N
-```
+`dom.workers.maxPerDomain` is a ceiling on JavaScript Web Workers for a domain; it is **not** the number of threads Firefox creates and does not configure WebRender's internal worker pool.
 
-Therefore:
 ```text
 dom.workers.maxPerDomain = 512
 ```
 
-should be treated as **removing an artificial worker-count bottleneck**, rather than as a command to use 512 CPU threads.
-WebRender's internal raster/scene-building workers are managed separately by Gecko/WebRender and are not configured through `dom.workers.maxPerDomain`. Firefox exposes Web Workers, Service Workers and other worker types as separate runtime entities.
-For systems with many-core CPUs, keeping the default `512` is generally preferable to reducing it to the CPU thread count, because the preference is only a concurrency ceiling; the browser and the page still decide how many workers actually exist and execute work.
+On builds where `512` is the default, leaving it there generally means allowing a high ceiling, not creating 512 threads. Actual parallelism depends on the workers a page creates and how it distributes its work. The page's main-thread JavaScript, rendering, garbage collection and compositing are distinct parts of the system; increasing a worker-count ceiling cannot automatically parallelize main-thread work.
 
-### 3l. WebRender Batching Lookback:
-WebRender's batching system searches previous primitives for opportunities to merge compatible rendering operations.
-```
-gfx.webrender.batching.lookback = 40  (default 10 on FF153)
-```
-A higher lookback gives the batch builder more opportunities to find compatible primitives instead of immediately creating another batch.
-The trade-off is a small increase in CPU-side batch construction work.
-For software WebRender, this can be worthwhile because CPU rasterization is often fast enough that reducing unnecessary rendering operations is preferable to minimizing the batcher's own bookkeeping.
-```
-smaller lookback : less searching : fewer batching opportunities
+### 3i. WebRender batching lookback
 
-larger lookback : more searching : more batching opportunities
+```text
+gfx.webrender.batching.lookback = 40
 ```
-This is **not** a frame queue, synchronization depth, or latency setting. It is a batching heuristic.
-Together with the other WebRender tuning parameters, the goal is to favor efficient continuous rendering rather than aggressively minimizing every individual operation.
 
+The batching lookback controls how far the batching logic searches for compatible rendering primitives. A larger value may find more batching opportunities while requiring more CPU-side search/bookkeeping. This is a heuristic, not a frame queue or latency setting. The default varies by version; retain the default unless profiling on the target build shows a repeatable gain.
 
-### 3z. Gradients:
-Some websites make heavy use of gradient calculations.
-These operations can be expensive in software rendering.
-Disabling precise gradient calculations reduces CPU usage while keeping visual differences negligible.
-```
-gfx.webrender.precise-conic-gradients = false		
-gfx.webrender.precise-conic-gradients-swgl = false		
-gfx.webrender.precise-linear-gradients-swgl = false		
-gfx.webrender.precise-radial-gradients = false		
+### 3j. Precise gradient calculations
+
+Some builds expose preferences such as:
+
+```text
+gfx.webrender.precise-conic-gradients = false
+gfx.webrender.precise-conic-gradients-swgl = false
+gfx.webrender.precise-linear-gradients-swgl = false
+gfx.webrender.precise-radial-gradients = false
 gfx.webrender.precise-radial-gradients-swgl = false
 ```
 
+These are build-dependent and may change rendering precision or appearance. Setting them to `false` is an experiment, not a guaranteed performance improvement. Confirm that each preference exists, compare visual output, and reset any change that does not show a measurable benefit on the target workload.
+
 ---
 
-## 4. JavaScript / SpiderMonkey JIT & Script Loading
+## 4. JavaScript / SpiderMonkey JIT and script loading
 
-These optimizations target the JavaScript execution pipeline rather than WebRender. They were tested on Firefox / Mercury and are intended as an aggressive throughput-oriented profile.
+**This section contains aggressive, workload-sensitive experiments. It is not the recommended baseline for current large SPAs.** These settings previously helped with hangs and responsiveness in the author's older workload. In a newer and substantially heavier ChatGPT SPA, aggressive JIT environment overrides coincided with very large memory spikes and were removed. Custom JIT preferences were then reset to the browser defaults for a clean comparison.
 
-### 4a. JIT warm-up
-Lower the warm-up thresholds so JavaScript reaches the JIT tiers earlier:
+The JIT changes below can alter warm-up, compilation volume, generated machine code, garbage-collection concurrency and startup work. A lower threshold does not automatically mean faster interaction: it can trigger more compilation and code generation for scripts that do not benefit from it, and large applications can keep substantial amounts of code and runtime data alive.
+
+### Recommended starting point: restore the defaults
+
+For a current, memory-heavy SPA, first reset the following preferences in `about:config` if you customized them through this guide:
+
+```text
+javascript.options.blinterp.threshold
+javascript.options.baselinejit.threshold
+javascript.options.ion.threshold
+javascript.options.ion.frequent_bailout_threshold
+javascript.options.inlining_bytecode_max_length
+javascript.options.concurrent_multiprocess_gcs.cpu_divisor
+javascript.options.concurrent_multiprocess_gcs.max
+javascript.options.mem.gc_max_parallel_marking_threads
+
+dom.script_loader.external_scripts.speculate_async.enabled
+dom.script_loader.external_scripts.speculate_link_preload.enabled
+dom.script_loader.delazification.strategy
+dom.script_loader.delazification.max_size
+dom.script_loader.delazification.min_mem
+dom.script_loader.bytecode_cache.strategy
+javascript.options.baselinejit.offthread_compilation_strategy
+```
+
+Not every preference exists in every release or fork. Reset only entries that appear in `about:config`; use the reset button so the browser selects the default for **that exact build**. Restart after changing preferences that are read during startup.
+
+Also remove any `JIT_OPTION_*` variables from the environment or browser-launch batch file when returning to the baseline. SpiderMonkey reads these overrides during startup, so restart the browser completely after removing them.
+
+### 4a. JIT warm-up thresholds — aggressive profile
+
+Legacy test values:
+
 ```text
 javascript.options.blinterp.threshold = 1
 javascript.options.baselinejit.threshold = 10
 javascript.options.ion.threshold = 300
 ```
-Firefox defaults are `10`, `100` and `1500` respectively. `blinterp.threshold` controls when a script enters the Baseline Interpreter, `baselinejit.threshold` when it is compiled by Baseline JIT, and `ion.threshold` when it is considered for Ion compilation.
-This profile favors early tier-up instead of leaving frequently executed code in lower tiers for longer.
 
-### 4b. Ion bailout tolerance
+These lower the warm-up thresholds so scripts can reach higher compilation tiers sooner. Common Firefox defaults in the source documentation are approximately `10`, `100` and `1500` respectively, but defaults must be checked against the target build.
+
+Earlier tier-up can help hot code, but can also compile more code sooner, increase compilation activity and consume more memory. These values should be tested as a group only after establishing a default-profile baseline, then measured individually. Do not assume that an earlier tier-up improves responsiveness for every SPA.
+
+### 4b. Ion frequent-bailout threshold — aggressive profile
+
+Legacy test value:
+
 ```text
 javascript.options.ion.frequent_bailout_threshold = 50
 ```
-Firefox defaults to `10`. This raises the number of bailouts without invalidation tolerated before Warp/Ion marks the script as having frequent bailouts and invalidates it. A higher value can help workloads where Ion-compiled code is useful but occasionally bails out.
 
-### 4c. Aggressive inlining
+This preference affects how many frequent bailouts are tolerated before code is treated as having a recurring bailout problem. Raising it can change how long an optimizing-JIT script remains eligible to run, but does not make speculative optimization universally more efficient. Behavior and default values can vary by build; reset it unless testing identifies a repeatable benefit.
+
+### 4c. Aggressive inlining — high memory-risk experiment
+
+Legacy test value:
+
 ```text
 javascript.options.inlining_bytecode_max_length = 4096
 ```
-Firefox defaults to `130` bytecodes. This is the size threshold used by Warp when deciding whether a function is eligible for inlining. Raising it does not force every large function to be inlined; normal compiler heuristics still apply.
-This favors larger inline candidates and can expose more code to Ion/Warp optimizations at the cost of potentially larger generated code and longer compilation.
 
-### 4d. Concurrent JavaScript GC
+This changes the bytecode-size threshold used when considering functions for inlining. It does **not** force every eligible function to be inlined, but a much larger threshold can expand the set of inline candidates and contribute to larger generated code and longer compilation.
+
+A setting of `4096` is intentionally far more aggressive than the typical default used by relevant Firefox builds. Combined with other aggressive JIT overrides, it should be treated as an experiment, not a routine optimization for large SPAs. Restore the default first if memory usage rises, startup slows, or scrolling becomes less responsive.
+
+### 4d. Concurrent JavaScript garbage collection
+
+Legacy test values:
+
 ```text
 javascript.options.concurrent_multiprocess_gcs.cpu_divisor = 1
 javascript.options.concurrent_multiprocess_gcs.max = 0
 ```
-Firefox defaults to `cpu_divisor = 4` and `max = 0`. The runtime allows at most:
-```text
-MIN(max, MAX(NUM_CPUS / cpu_divisor, 1))
-```
-concurrent GCs between processes. With `max = 0`, the explicit maximum is effectively unlimited; with `cpu_divisor = 1`, the hardware CPU count becomes the practical limit.
-On high-core-count systems this can increase GC concurrency. The best value is workload-dependent.
+
+These settings affect the allowed concurrency of garbage collection across processes on builds that expose them. A smaller CPU divisor can permit more concurrent GC activity on high-core-count machines. More concurrency can help in some circumstances, but it can also increase CPU contention, memory pressure and simultaneous activity across processes. `max = 0` semantics should be checked for the target build rather than assumed from another version.
+
+More cores do not automatically justify a divisor of `1`. Reset these preferences for the baseline, and only experiment with GC concurrency when profiling demonstrates that GC—not script compilation, layout or the compositor—is the bottleneck.
 
 ### 4e. Speculative off-main-thread script compilation
+
+Legacy test values:
+
 ```text
 dom.script_loader.external_scripts.speculate_async.enabled = true
 dom.script_loader.external_scripts.speculate_link_preload.enabled = true
 ```
-Firefox ships `speculate_async` and `speculate_link_preload` disabled by default. They enable speculative parsing/compilation for async scripts and link-preloaded scripts respectively. `speculative_omt_parse.enabled` is already `true` by default in Firefox.
-These settings move more parsing/compilation work ahead of demand and away from the main execution path.
+
+Where available, these preferences enable speculative work for particular external-script loading paths. Speculation can move some work earlier, but it can also do work for code that is delayed, unused or invalidated. The names, defaults and implementation are version-dependent. Reset to defaults when diagnosing memory spikes or regressions in a large application.
 
 ### 4f. Eager delazification for large script sets
+
+Legacy test values:
+
 ```text
 dom.script_loader.delazification.strategy = 255
 dom.script_loader.delazification.max_size = -1
 dom.script_loader.delazification.min_mem = 2
 ```
-`strategy = 255` means parse functions eagerly together with the top level. Firefox normally stops applying that strategy after 10 MiB of UTF-8 script data; `-1` disables that size cutoff.
-This is particularly relevant to very large JavaScript applications.
+
+This profile requests more eager function parsing/delazification and removes the usual script-size cutoff where the build interprets `-1` that way. It may reduce later parsing delays for some applications, but it can also increase upfront CPU work and memory use, especially when the application ships a large script bundle.
+
+This is a high-risk experiment for large SPAs, not a general speed setting. Restore the build's defaults unless cold-load measurements show a repeatable net benefit without worse memory or interaction latency.
 
 ### 4g. Bytecode cache strategy
+
+Legacy test value:
+
 ```text
 dom.script_loader.bytecode_cache.strategy = -1
 ```
 
-Firefox defaults to `0`. Other values use experimental bytecode-cache strategies; the exact behavior is implemented by `ScriptLoader::ShouldCacheBytecode`.
-This profile favors retaining compiled script information for subsequent loads.
+This is a script-loader implementation detail whose accepted values and behavior are version-dependent. Do not assume that a negative value universally means “cache more” or that it improves repeat loads on every fork. The default in some Firefox versions is `0`; verify the exact implementation before changing this preference. Keep the default while diagnosing a current SPA regression.
 
-### 4h. JIT internal warm-up tuning
-The following `JIT_OPTION_*` variables are read by SpiderMonkey at process startup:
+### 4h. SpiderMonkey `JIT_OPTION_*` environment overrides — legacy only
+
+The following environment-variable profile is **not recommended as a default configuration**. It is retained here for reproducibility and testing on builds that support these overrides.
+
+Example Windows batch fragment from the earlier experimental profile:
+
 ```bat
 set "JIT_OPTION_trialInliningWarmUpThreshold=50"
 set "JIT_OPTION_trialInliningInitialWarmUpCount=30"
@@ -388,48 +315,66 @@ set "JIT_OPTION_smallFunctionMaxBytecodeLength=2000"
 set "JIT_OPTION_ionMaxScriptSize=5000000"
 set "JIT_OPTION_ionMaxLocalsAndArgs=50000"
 set "JIT_OPTION_branchPruningThreshold=2000"
-START "" "%cd%\browser.exe" --profile "%~dp0%\USER_DATA"
+START "" "%cd%\browser.exe" --profile "%~dp0USER_DATA"
 ```
-**warning:** inliningEntryThreshold=10 will give temporary huge spikes in ram up to 16gb for big SPA, be sure to have a lot of paging if you proceed to the absolute compiling aggressiveness.
-Firefox reads these values from the environment using the `JIT_OPTION_<name>` convention. Its defaults include `trialInliningWarmUpThreshold=500`, `trialInliningInitialWarmUpCount=250`, `inliningEntryThreshold=100`, `smallFunctionMaxBytecodeLength=130`, `ionMaxScriptSize=100000`, `ionMaxLocalsAndArgs=10000`, and `branchPruningThreshold=4000`.
-These settings make Trial Inlining and Ion admission substantially more aggressive:
-```text
-earlier trial inlining
-earlier inlining eligibility
-larger functions considered "small"
-larger scripts accepted by Ion
-more locals/arguments accepted by Ion
-more aggressive branch pruning
-```
-Because these are environment variables rather than normal `about:config` preferences, firefox/waterfox/mercury must be launched from a BAT/CMD file:
-A complete restart is required after changing these `JIT_OPTION_*` values because SpiderMonkey reads them while constructing its JIT configuration.
 
-### 4i. Experimental / build-dependent GC marking
-Some Mercury/Waterfox builds may expose:
+SpiderMonkey builds that support them read `JIT_OPTION_<name>` overrides during startup. The variable names and defaults are implementation details and may differ by version or fork; confirm support in the source for the exact binary. A complete browser restart is required after changing these variables.
+
+The values above make several compilation/inlining limits more permissive than the usual defaults. They can produce substantially more compiler work and generated code. In the author's testing, aggressive JIT environment overrides that had helped an older workload were associated with very large memory spikes on the newer ChatGPT SPA; removing the overrides was necessary to return to a stable baseline. This is an observed workload-specific result, not a universal RAM figure or guaranteed behavior.
+
+An older note in this guide warned that setting `JIT_OPTION_inliningEntryThreshold` to `10` could produce transient memory spikes approaching 16 GB in a large SPA. Treat that figure as an anecdotal observation from one test environment, not a prediction. More paging capacity is not a substitute for controlling memory pressure.
+
+### 4i. Experimental parallel GC marking
+
+Some Firefox-family builds may expose:
+
 ```text
 javascript.options.mem.gc_max_parallel_marking_threads = 8
 ```
-When available, this controls the maximum number of parallel marking threads. Keep this under the experimental section because availability and behavior are build-dependent.
 
-These settings are workload-sensitive. Validate with repeated cold-load and warm-load tests on the target browser/build.
+This controls a maximum number of parallel marking threads where supported. The value is a ceiling, not a promise that eight threads are always used or that GC becomes eight times faster. Keep the preference at its build default unless the relevant version and workload have been profiled. On large SPAs, test peak memory and interaction latency as well as total GC time.
 
-### 4l. Baseline JIT Off-Thread Compilation Strategy
+### 4j. Baseline JIT off-thread compilation strategy
+
+Some newer or fork-specific builds may expose:
+
 ```text
 javascript.options.baselinejit.offthread_compilation_strategy = 3
 ```
-On Firefox builds that expose this preference, `3` enables the **eager + on-demand off-thread Baseline compilation strategy**, allowing Baseline compilation to be scheduled off the main thread both eagerly and when additional compilation is requested.
 
-```text
-2 = eager OMT compilation
-3 = eager + on-demand OMT compilation
-```
-It applies to newer Firefox builds where the preference is exposed. In testing on Firefox mainline, changing it from `2` to `3` produced a noticeable improvement in JavaScript-heavy page loading and warm-up.
+The mapping of numeric values to compilation strategies is version-specific. Do not assume that `3` always means the same thing across Firefox, Waterfox and Mercury builds. If the preference exists, consult source or release-specific documentation before changing it, then compare cold-load and warm-load behavior. A faster initial load does not necessarily imply smoother interaction after the entire SPA has initialized.
 
 ---
 
-## 5. Beyond barebone optimizations : why web browsers are mainly single-threaded ?
-* Curious to know more about software renderers still beat gpu acceleration ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/DOM_SINGLE_THREADED.md)**
-* Curious to know more about browsers rendering pipelines ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/RENDERING_PIPELINE.md)**
-* curious to know more about GPU layers ? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/GPU_LAYERS.md)**
-* Curious to know more about JavaScript compilation? have a look **[here](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/JS_COMPILE.md)**
+## 5. Testing methodology
 
+For reproducible tuning, record the exact browser name/version, operating system, graphics driver, rendering backend and application version. Use the same long conversation or representative page for each run.
+
+1. Establish a baseline with default JIT and script-loader preferences.
+2. Restart the browser between changes that are read at startup.
+3. Test only one preference or tightly related group at a time.
+4. Measure at least cold load, warm load, idle memory, peak memory, scroll responsiveness and recovery after a long session.
+5. Repeat each test; a single run can be affected by caching, background tasks and network variability.
+6. Keep a change only when the gain is repeatable and does not introduce a worse memory or responsiveness regression.
+
+If scrolling remains sluggish after resetting JIT settings, disable extensions one at a time and compare the same page. An extension that changes conversation history or DOM structure may reduce the rendered node count yet introduce work during scrolling or message loading. Do not attribute every scroll hitch to WebRender or the JIT without profiling.
+
+---
+
+## 6. Further reading
+
+- [Software rendering and GPU acceleration notes](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/DOM_SINGLE_THREADED.md)
+- [Browser rendering pipeline](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/RENDERING_PIPELINE.md)
+- [GPU layers](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/GPU_LAYERS.md)
+- [JavaScript compilation notes](https://github.com/aston89/Firefox-Waterfox-Mercury-Webrender-optimization-guide/blob/main/JS_COMPILE.md)
+- [Mozilla Firefox Source Docs: How SpiderMonkey optimizes JavaScript](https://firefox-source-docs.mozilla.org/js/how-we-optimize.html)
+- [Mozilla Searchfox: Firefox source and generated preference definitions](https://searchfox.org/firefox-main/source/)
+
+---
+
+## Summary
+
+- Software WebRender can be the better path on a particular system, but GPU-versus-CPU rendering is hardware- and workload-dependent.
+- WebRender tile, update-rectangle, cache and batching preferences are experiments; do not assume larger values are faster.
+- The aggressive JIT and script-loader profile is now labelled **legacy/experimental** because its benefits did not carry over to the newer, much heavier ChatGPT SPA in the author's testing.
+- For current large SPAs, start with the browser defaults, then profile before reintroducing one tuning change at a time.
