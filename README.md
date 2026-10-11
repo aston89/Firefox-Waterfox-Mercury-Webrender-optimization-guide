@@ -217,7 +217,7 @@ Not every preference exists in every release or fork. Reset only entries that ap
 
 Also remove any `JIT_OPTION_*` variables from the environment or browser-launch batch file when returning to the baseline. SpiderMonkey reads these overrides during startup, so restart the browser completely after removing them.
 
-### 4a. JIT warm-up thresholds — aggressive profile
+### 4a. JIT warm-up thresholds - aggressive profile
 
 Legacy test values:
 
@@ -231,7 +231,7 @@ These lower the warm-up thresholds so scripts can reach higher compilation tiers
 
 Earlier tier-up can help hot code, but can also compile more code sooner, increase compilation activity and consume more memory. These values should be tested as a group only after establishing a default-profile baseline, then measured individually. Do not assume that an earlier tier-up improves responsiveness for every SPA.
 
-### 4b. Ion frequent-bailout threshold — aggressive profile
+### 4b. Ion frequent-bailout threshold - aggressive profile
 
 Legacy test value:
 
@@ -241,7 +241,7 @@ javascript.options.ion.frequent_bailout_threshold = 50
 
 This preference affects how many frequent bailouts are tolerated before code is treated as having a recurring bailout problem. Raising it can change how long an optimizing-JIT script remains eligible to run, but does not make speculative optimization universally more efficient. Behavior and default values can vary by build; reset it unless testing identifies a repeatable benefit.
 
-### 4c. Aggressive inlining — high memory-risk experiment
+### 4c. Aggressive inlining - high memory-risk experiment
 
 Legacy test value:
 
@@ -264,7 +264,7 @@ javascript.options.concurrent_multiprocess_gcs.max = 0
 
 These settings affect the allowed concurrency of garbage collection across processes on builds that expose them. A smaller CPU divisor can permit more concurrent GC activity on high-core-count machines. More concurrency can help in some circumstances, but it can also increase CPU contention, memory pressure and simultaneous activity across processes. `max = 0` semantics should be checked for the target build rather than assumed from another version.
 
-More cores do not automatically justify a divisor of `1`. Reset these preferences for the baseline, and only experiment with GC concurrency when profiling demonstrates that GC—not script compilation, layout or the compositor—is the bottleneck.
+More cores do not automatically justify a divisor of `1`. Reset these preferences for the baseline, and only experiment with GC concurrency when profiling demonstrates that GC-not script compilation, layout or the compositor-is the bottleneck.
 
 ### 4e. Speculative off-main-thread script compilation
 
@@ -301,7 +301,7 @@ dom.script_loader.bytecode_cache.strategy = -1
 
 This is a script-loader implementation detail whose accepted values and behavior are version-dependent. Do not assume that a negative value universally means “cache more” or that it improves repeat loads on every fork. The default in some Firefox versions is `0`; verify the exact implementation before changing this preference. Keep the default while diagnosing a current SPA regression.
 
-### 4h. SpiderMonkey `JIT_OPTION_*` environment overrides — legacy only
+### 4h. SpiderMonkey `JIT_OPTION_*` environment overrides - legacy only
 
 The following environment-variable profile is **not recommended as a default configuration**. It is retained here for reproducibility and testing on builds that support these overrides.
 
